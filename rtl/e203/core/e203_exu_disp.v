@@ -103,6 +103,17 @@ module e203_exu_disp(
 
   output [`E203_PC_SIZE-1:0] disp_oitf_pc ,
 
+  //////////////////////////////////////////////////////////////
+  // Data Forwarding Interface
+  // Forward from ALU write-back stage
+  input  alu_wbck_i_valid,
+  input  [`E203_XLEN-1:0] alu_wbck_i_wdat,
+  input  [`E203_RFIDX_WIDTH-1:0] alu_wbck_i_rdidx,
+  // Forward from long-pipe write-back stage  
+  input  longp_wbck_i_valid,
+  input  [`E203_XLEN-1:0] longp_wbck_i_wdat,
+  input  [`E203_RFIDX_WIDTH-1:0] longp_wbck_i_rdidx,
+
   
   input  clk,
   input  rst_n
@@ -173,9 +184,49 @@ module e203_exu_disp(
   //             Note: if it is 3 pipeline stages, then we also need to consider the non-ALU-to-ALU 
   //                   RAW dependency.
 
-  wire raw_dep =  ((oitfrd_match_disprs1) |
-                   (oitfrd_match_disprs2) |
-                   (oitfrd_match_disprs3)); 
+  //////////////////////////////////////////////////////////////
+  // Data Forwarding Logic
+  // Check if we can forward data from ALU or long-pipe write-back stage
+  // This allows bypassing the stall for RAW hazards
+  
+  // Forward from ALU write-back if:
+  // 1. ALU write-back is valid
+  // 2. Register indexes match
+  // 3. Not writing to x0
+  wire alu_fwd_rs1_match = alu_wbck_i_valid 
+                         & (alu_wbck_i_rdidx == disp_i_rs1idx) 
+                         & (|disp_i_rs1idx)
+                         & disp_i_rs1en;
+  wire alu_fwd_rs2_match = alu_wbck_i_valid 
+                         & (alu_wbck_i_rdidx == disp_i_rs2idx) 
+                         & (|disp_i_rs2idx)
+                         & disp_i_rs2en;
+  
+  // Forward from long-pipe write-back if:
+  // 1. Long-pipe write-back is valid
+  // 2. Register indexes match  
+  // 3. Not writing to x0
+  wire longp_fwd_rs1_match = longp_wbck_i_valid 
+                           & (longp_wbck_i_rdidx == disp_i_rs1idx) 
+                           & (|disp_i_rs1idx)
+                           & disp_i_rs1en;
+  wire longp_fwd_rs2_match = longp_wbck_i_valid 
+                           & (longp_wbck_i_rdidx == disp_i_rs2idx) 
+                           & (|disp_i_rs2idx)
+                           & disp_i_rs2en;
+
+  // Determine if RAW hazard can be resolved by forwarding
+  // If forwarding is possible, we don't need to stall
+  wire raw_rs1_fwd = alu_fwd_rs1_match | longp_fwd_rs1_match;
+  wire raw_rs2_fwd = alu_fwd_rs2_match | longp_fwd_rs2_match;
+  
+  // Original RAW dependency check with OITF
+  wire raw_rs1_dep = oitfrd_match_disprs1 & (~raw_rs1_fwd);
+  wire raw_rs2_dep = oitfrd_match_disprs2 & (~raw_rs2_fwd);
+  wire raw_rs3_dep = oitfrd_match_disprs3; // RS3 not used in base ISA, keep original
+  
+  wire raw_dep = raw_rs1_dep | raw_rs2_dep | raw_rs3_dep;
+  
                // Only check the longp instructions (non-ALU) for WAW, here if we 
                //   use the precise version (disp_alu_longp_real), it will hurt timing very much, but
                //   if we use imprecise version of disp_alu_longp_prdt, it is kind of tricky and in 
@@ -228,14 +279,30 @@ module e203_exu_disp(
 
   wire [`E203_XLEN-1:0] disp_i_rs1_msked = disp_i_rs1 & {`E203_XLEN{~disp_i_rs1x0}};
   wire [`E203_XLEN-1:0] disp_i_rs2_msked = disp_i_rs2 & {`E203_XLEN{~disp_i_rs2x0}};
+  
+  //////////////////////////////////////////////////////////////
+  // Forwarding Mux for RS1
+  // Priority: ALU write-back > Long-pipe write-back > Regfile
+  wire [`E203_XLEN-1:0] disp_i_rs1_forwarded;
+  assign disp_i_rs1_forwarded = ({`E203_XLEN{alu_fwd_rs1_match}}   & alu_wbck_i_wdat) |
+                                ({`E203_XLEN{longp_fwd_rs1_match}} & longp_wbck_i_wdat) |
+                                ({`E203_XLEN{~(alu_fwd_rs1_match | longp_fwd_rs1_match)}} & disp_i_rs1_msked);
+  
+  // Forwarding Mux for RS2  
+  // Priority: ALU write-back > Long-pipe write-back > Regfile
+  wire [`E203_XLEN-1:0] disp_i_rs2_forwarded;
+  assign disp_i_rs2_forwarded = ({`E203_XLEN{alu_fwd_rs2_match}}   & alu_wbck_i_wdat) |
+                                ({`E203_XLEN{longp_fwd_rs2_match}} & longp_wbck_i_wdat) |
+                                ({`E203_XLEN{~(alu_fwd_rs2_match | longp_fwd_rs2_match)}} & disp_i_rs2_msked);
+
     // Since we always dispatch any instructions into ALU, so we dont need to gate ops here
   //assign disp_o_alu_rs1   = {`E203_XLEN{disp_alu}} & disp_i_rs1_msked;
   //assign disp_o_alu_rs2   = {`E203_XLEN{disp_alu}} & disp_i_rs2_msked;
   //assign disp_o_alu_rdwen = disp_alu & disp_i_rdwen;
   //assign disp_o_alu_rdidx = {`E203_RFIDX_WIDTH{disp_alu}} & disp_i_rdidx;
   //assign disp_o_alu_info  = {`E203_DECINFO_WIDTH{disp_alu}} & disp_i_info;  
-  assign disp_o_alu_rs1   = disp_i_rs1_msked;
-  assign disp_o_alu_rs2   = disp_i_rs2_msked;
+  assign disp_o_alu_rs1   = disp_i_rs1_forwarded;
+  assign disp_o_alu_rs2   = disp_i_rs2_forwarded;
   assign disp_o_alu_rdwen = disp_i_rdwen;
   assign disp_o_alu_rdidx = disp_i_rdidx;
   assign disp_o_alu_info  = disp_i_info;  

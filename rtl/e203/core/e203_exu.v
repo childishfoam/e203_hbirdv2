@@ -409,6 +409,14 @@ module e203_exu(
     .oitfrd_match_disprs2(oitfrd_match_disprs2),
     .oitfrd_match_disprs3(oitfrd_match_disprs3),
     .oitfrd_match_disprd (oitfrd_match_disprd ),
+
+    // Data Forwarding connections
+    .alu_wbck_i_valid    (alu_wbck_o_valid ),
+    .alu_wbck_i_wdat     (alu_wbck_o_wdat  ),
+    .alu_wbck_i_rdidx    (alu_wbck_o_rdidx ),
+    .longp_wbck_i_valid  (longp_wbck_o_valid ),
+    .longp_wbck_i_wdat   (longp_wbck_o_wdat[`E203_XLEN-1:0]),
+    .longp_wbck_i_rdidx  (longp_wbck_o_rdidx ),
     
     .clk                 (clk  ),
     .rst_n               (rst_n) 
