@@ -22,12 +22,38 @@ module tb_top();
   wire [`E203_XLEN-1:0] x3 = `EXU.u_e203_exu_regfile.rf_r[3];
   wire [`E203_PC_SIZE-1:0] pc = `EXU.u_e203_exu_commit.alu_cmt_i_pc;
   wire [`E203_PC_SIZE-1:0] pc_vld = `EXU.u_e203_exu_commit.alu_cmt_i_valid;
+  
+  // Register file monitoring for hazard test
+  wire [`E203_XLEN-1:0] x1 = `EXU.u_e203_exu_regfile.rf_r[1];
+  wire [`E203_XLEN-1:0] x2 = `EXU.u_e203_exu_regfile.rf_r[2];
+  wire [`E203_XLEN-1:0] x4 = `EXU.u_e203_exu_regfile.rf_r[4];
+  wire [`E203_XLEN-1:0] x5 = `EXU.u_e203_exu_regfile.rf_r[5];
+  wire [`E203_XLEN-1:0] x6 = `EXU.u_e203_exu_regfile.rf_r[6];
+  wire [`E203_XLEN-1:0] x7 = `EXU.u_e203_exu_regfile.rf_r[7];
+  wire [`E203_XLEN-1:0] x8 = `EXU.u_e203_exu_regfile.rf_r[8];
+  wire [`E203_XLEN-1:0] x9 = `EXU.u_e203_exu_regfile.rf_r[9];
+  wire [`E203_XLEN-1:0] x10 = `EXU.u_e203_exu_regfile.rf_r[10];
+  wire [`E203_XLEN-1:0] x11 = `EXU.u_e203_exu_regfile.rf_r[11];
+  wire [`E203_XLEN-1:0] x12 = `EXU.u_e203_exu_regfile.rf_r[12];
+  wire [`E203_XLEN-1:0] x13 = `EXU.u_e203_exu_regfile.rf_r[13];
+  wire [`E203_XLEN-1:0] x14 = `EXU.u_e203_exu_regfile.rf_r[14];
+  wire [`E203_XLEN-1:0] x15 = `EXU.u_e203_exu_regfile.rf_r[15];
+  wire [`E203_XLEN-1:0] x16 = `EXU.u_e203_exu_regfile.rf_r[16];
+  wire [`E203_XLEN-1:0] x17 = `EXU.u_e203_exu_regfile.rf_r[17];
 
   reg [31:0] pc_write_to_host_cnt;
   reg [31:0] pc_write_to_host_cycle;
   reg [31:0] valid_ir_cycle;
   reg [31:0] cycle_count;
   reg pc_write_to_host_flag;
+  
+  // Hazard test instruction tracking
+  reg [31:0] instr_cycle [1:20];  // Cycle count for each instruction
+  reg [4:0]  instr_count;          // Current instruction counter
+  reg        hazard_test_active;   // Flag to indicate we're running hazard test
+  reg [31:0] hazard_test_start_cycle; // Cycle when first test instruction started
+  wire [`E203_INSTR_SIZE-1:0] current_instr = `EXU.i_ir;
+  wire instr_valid = `EXU.i_valid & `EXU.i_ready;
 
   always @(posedge hfclk or negedge rst_n)
   begin 
@@ -41,6 +67,64 @@ module tb_top();
         pc_write_to_host_flag <= 1'b1;
         if (pc_write_to_host_flag == 1'b0) begin
             pc_write_to_host_cycle <= cycle_count;
+        end
+    end
+  end
+  
+  // Instruction tracking for hazard test
+  integer i;
+  always @(posedge hfclk or negedge rst_n)
+  begin
+    if(rst_n == 1'b0) begin
+        instr_count <= 5'd0;
+        hazard_test_active <= 1'b0;
+        hazard_test_start_cycle <= 32'd0;
+        for (i = 1; i <= 20; i = i + 1) begin
+            instr_cycle[i] <= 32'd0;
+        end
+    end
+    else if (instr_valid && !pc_write_to_host_flag) begin
+        // Detect start of our test sequence
+        // First instruction: addi x1, x0, 5 -> opcode: 0x00500093
+        if (!hazard_test_active && (current_instr == 32'h00500093)) begin
+            hazard_test_active <= 1'b1;
+            hazard_test_start_cycle <= cycle_count;
+            instr_count <= 5'd1;
+            instr_cycle[1] <= cycle_count;
+            $display("[HAZARD_TEST] Instruction 1: addi x1, x0, 5  | Cycle: %d | x1=%h", cycle_count, x1);
+        end
+        // Track subsequent instructions
+        else if (hazard_test_active && (instr_count < 20)) begin
+            instr_count <= instr_count + 1;
+            instr_cycle[instr_count + 1] <= cycle_count;
+            case (instr_count + 1)
+                2: $display("[HAZARD_TEST] Instruction 2: addi x2, x0, 3  | Cycle: %d | x2=%h", cycle_count, x2);
+                3: $display("[HAZARD_TEST] Instruction 3: add  x3, x1, x2 | Cycle: %d | x3=%h", cycle_count, x3);
+                4: $display("[HAZARD_TEST] Instruction 4: sw   x3, 0(x0)  | Cycle: %d", cycle_count);
+                5: $display("[HAZARD_TEST] Instruction 5: lw   x4, 0(x0)  | Cycle: %d | x4=%h", cycle_count, x4);
+                6: $display("[HAZARD_TEST] Instruction 6: add  x5, x4, x1 | Cycle: %d | x5=%h", cycle_count, x5);
+                7: $display("[HAZARD_TEST] Instruction 7: sub  x6, x5, x2 | Cycle: %d | x6=%h", cycle_count, x6);
+                8: $display("[HAZARD_TEST] Instruction 8: mul  x7, x6, x3 | Cycle: %d | x7=%h", cycle_count, x7);
+                9: $display("[HAZARD_TEST] Instruction 9: addi x1, x0, 8  | Cycle: %d | x1=%h", cycle_count, x1);
+                10: $display("[HAZARD_TEST] Instruction 10: add  x8, x7, x1 | Cycle: %d | x8=%h", cycle_count, x8);
+                11: $display("[HAZARD_TEST] Instruction 11: and  x9, x8, x5 | Cycle: %d | x9=%h", cycle_count, x9);
+                12: $display("[HAZARD_TEST] Instruction 12: or   x10,x9, x7 | Cycle: %d | x10=%h", cycle_count, x10);
+                13: $display("[HAZARD_TEST] Instruction 13: xor  x11,x10,x8 | Cycle: %d | x11=%h", cycle_count, x11);
+                14: $display("[HAZARD_TEST] Instruction 14: sll  x12,x11,x2 | Cycle: %d | x12=%h", cycle_count, x12);
+                15: $display("[HAZARD_TEST] Instruction 15: srl  x13,x12,x1 | Cycle: %d | x13=%h", cycle_count, x13);
+                16: $display("[HAZARD_TEST] Instruction 16: addi x14,x13,-1 | Cycle: %d | x14=%h", cycle_count, x14);
+                17: $display("[HAZARD_TEST] Instruction 17: sw   x14,4(x0)  | Cycle: %d", cycle_count);
+                18: $display("[HAZARD_TEST] Instruction 18: lw   x15,4(x0)  | Cycle: %d | x15=%h", cycle_count, x15);
+                19: $display("[HAZARD_TEST] Instruction 19: add  x16,x15,x10| Cycle: %d | x16=%h", cycle_count, x16);
+                20: begin
+                    $display("[HAZARD_TEST] Instruction 20: mul  x17,x16,x13| Cycle: %d | x17=%h", cycle_count, x17);
+                    $display("");
+                    $display("========== HAZARD TEST COMPLETED ==========");
+                    $display("Total cycles for 20 instructions: %d", cycle_count - hazard_test_start_cycle + 1);
+                    $display("===========================================");
+                    $display("");
+                end
+            endcase
         end
     end
   end
