@@ -344,6 +344,19 @@ module e203_exu(
 
   wire amo_wait;
 
+  // Data forwarding signals (declared early for use in dispatch)
+  wire alu_wbck_o_valid;
+  wire alu_wbck_o_ready;
+  wire [`E203_XLEN-1:0] alu_wbck_o_wdat;
+  wire [`E203_RFIDX_WIDTH-1:0] alu_wbck_o_rdidx;
+
+  wire longp_wbck_o_valid;
+  wire longp_wbck_o_ready;
+  wire [`E203_FLEN-1:0] longp_wbck_o_wdat;
+  wire [`E203_RFIDX_WIDTH-1:0] longp_wbck_o_rdidx;
+  wire longp_wbck_o_rdfpu;
+  wire [4:0] longp_wbck_o_flags;
+
   e203_exu_disp u_e203_exu_disp(
     .wfi_halt_exu_req    (wfi_halt_exu_req),
     .wfi_halt_exu_ack    (wfi_halt_exu_ack),
@@ -473,10 +486,7 @@ module e203_exu(
 
   //////////////////////////////////////////////////////////////
   // Instantiate the ALU
-  wire alu_wbck_o_valid;
-  wire alu_wbck_o_ready;
-  wire [`E203_XLEN-1:0] alu_wbck_o_wdat;
-  wire [`E203_RFIDX_WIDTH-1:0] alu_wbck_o_rdidx;
+  // Note: alu_wbck_o_* signals are declared earlier for use in dispatch
 
   wire alu_cmt_valid;
   wire alu_cmt_ready;
@@ -656,12 +666,7 @@ module e203_exu(
 
   //////////////////////////////////////////////////////////////
   // Instantiate the Long-pipe Write-Back
-  wire longp_wbck_o_valid;
-  wire longp_wbck_o_ready;
-  wire [`E203_FLEN-1:0] longp_wbck_o_wdat;
-  wire [`E203_RFIDX_WIDTH-1:0] longp_wbck_o_rdidx;
-  wire longp_wbck_o_rdfpu;
-  wire [4:0] longp_wbck_o_flags;
+  // Note: longp_wbck_o_* signals are declared earlier for use in dispatch
 
   wire longp_excp_o_ready;
   wire longp_excp_o_valid;
