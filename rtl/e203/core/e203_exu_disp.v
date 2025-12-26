@@ -32,6 +32,17 @@ module e203_exu_disp(
 
   input  oitf_empty,
   input  amo_wait,
+  
+  //////////////////////////////////////////////////////////////
+  // Data forwarding inputs from writeback stage
+  input  alu_wbck_i_valid,
+  input  [`E203_XLEN-1:0] alu_wbck_i_wdat,
+  input  [`E203_RFIDX_WIDTH-1:0] alu_wbck_i_rdidx,
+  
+  input  longp_wbck_i_valid,
+  input  [`E203_XLEN-1:0] longp_wbck_i_wdat,
+  input  [`E203_RFIDX_WIDTH-1:0] longp_wbck_i_rdidx,
+  
   //////////////////////////////////////////////////////////////
   // The operands and decode info from dispatch
   input  disp_i_valid, // Handshake valid
@@ -111,6 +122,37 @@ module e203_exu_disp(
 
   wire [`E203_DECINFO_GRP_WIDTH-1:0] disp_i_info_grp  = disp_i_info [`E203_DECINFO_GRP];
 
+  //////////////////////////////////////////////////////////////
+  // Data Forwarding Logic
+  // Check if we can forward data from ALU writeback stage
+  wire alu_fwd_rs1 = alu_wbck_i_valid & disp_i_rs1en & 
+                     (alu_wbck_i_rdidx == disp_i_rs1idx) & 
+                     (alu_wbck_i_rdidx != `E203_RFIDX_WIDTH'd0);
+  wire alu_fwd_rs2 = alu_wbck_i_valid & disp_i_rs2en & 
+                     (alu_wbck_i_rdidx == disp_i_rs2idx) & 
+                     (alu_wbck_i_rdidx != `E203_RFIDX_WIDTH'd0);
+  
+  // Check if we can forward data from long-pipe writeback stage
+  wire longp_fwd_rs1 = longp_wbck_i_valid & disp_i_rs1en & 
+                       (longp_wbck_i_rdidx == disp_i_rs1idx) & 
+                       (longp_wbck_i_rdidx != `E203_RFIDX_WIDTH'd0);
+  wire longp_fwd_rs2 = longp_wbck_i_valid & disp_i_rs2en & 
+                       (longp_wbck_i_rdidx == disp_i_rs2idx) & 
+                       (longp_wbck_i_rdidx != `E203_RFIDX_WIDTH'd0);
+  
+  // Select forwarded data (ALU has priority over long-pipe)
+  wire [`E203_XLEN-1:0] fwd_rs1_dat = alu_fwd_rs1 ? alu_wbck_i_wdat : 
+                                      longp_fwd_rs1 ? longp_wbck_i_wdat : 
+                                      disp_i_rs1;
+  wire [`E203_XLEN-1:0] fwd_rs2_dat = alu_fwd_rs2 ? alu_wbck_i_wdat : 
+                                      longp_fwd_rs2 ? longp_wbck_i_wdat : 
+                                      disp_i_rs2;
+  
+  // Check if OITF dependency can be resolved by forwarding
+  // If we can forward, then we don't have a real RAW dependency
+  wire oitfrd_match_disprs1_no_fwd = oitfrd_match_disprs1 & ~(alu_fwd_rs1 | longp_fwd_rs1);
+  wire oitfrd_match_disprs2_no_fwd = oitfrd_match_disprs2 & ~(alu_fwd_rs2 | longp_fwd_rs2);
+
   // Based on current 2 pipe stage implementation, the 2nd stage need to have all instruction
   //   to be commited via ALU interface, so every instruction need to be dispatched to ALU,
   //   regardless it is long pipe or not, and inside ALU it will issue instructions to different
@@ -173,8 +215,8 @@ module e203_exu_disp(
   //             Note: if it is 3 pipeline stages, then we also need to consider the non-ALU-to-ALU 
   //                   RAW dependency.
 
-  wire raw_dep =  ((oitfrd_match_disprs1) |
-                   (oitfrd_match_disprs2) |
+  wire raw_dep =  ((oitfrd_match_disprs1_no_fwd) |
+                   (oitfrd_match_disprs2_no_fwd) |
                    (oitfrd_match_disprs3)); 
                // Only check the longp instructions (non-ALU) for WAW, here if we 
                //   use the precise version (disp_alu_longp_real), it will hurt timing very much, but
@@ -226,8 +268,8 @@ module e203_exu_disp(
   assign disp_i_ready     = disp_condition & disp_i_ready_pos; 
 
 
-  wire [`E203_XLEN-1:0] disp_i_rs1_msked = disp_i_rs1 & {`E203_XLEN{~disp_i_rs1x0}};
-  wire [`E203_XLEN-1:0] disp_i_rs2_msked = disp_i_rs2 & {`E203_XLEN{~disp_i_rs2x0}};
+  wire [`E203_XLEN-1:0] disp_i_rs1_msked = fwd_rs1_dat & {`E203_XLEN{~disp_i_rs1x0}};
+  wire [`E203_XLEN-1:0] disp_i_rs2_msked = fwd_rs2_dat & {`E203_XLEN{~disp_i_rs2x0}};
     // Since we always dispatch any instructions into ALU, so we dont need to gate ops here
   //assign disp_o_alu_rs1   = {`E203_XLEN{disp_alu}} & disp_i_rs1_msked;
   //assign disp_o_alu_rs2   = {`E203_XLEN{disp_alu}} & disp_i_rs2_msked;

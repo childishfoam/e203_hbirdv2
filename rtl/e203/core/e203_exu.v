@@ -350,6 +350,15 @@ module e203_exu(
     .oitf_empty          (oitf_empty),
 
     .amo_wait            (amo_wait),
+    
+    // Data forwarding inputs from writeback
+    .alu_wbck_i_valid    (alu_wbck_o_valid),
+    .alu_wbck_i_wdat     (alu_wbck_o_wdat),
+    .alu_wbck_i_rdidx    (alu_wbck_o_rdidx),
+    
+    .longp_wbck_i_valid  (longp_wbck_o_valid),
+    .longp_wbck_i_wdat   (longp_wbck_o_wdat[`E203_XLEN-1:0]),
+    .longp_wbck_i_rdidx  (longp_wbck_o_rdidx),
 
     .disp_i_valid        (i_valid         ),
     .disp_i_ready        (i_ready         ),
